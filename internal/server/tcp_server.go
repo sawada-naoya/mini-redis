@@ -2,20 +2,28 @@ package server
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"log"
 	"net"
 
+	"github.com/sawada-naoya/mini-redis/internal/handler"
 	"github.com/sawada-naoya/mini-redis/internal/protocol"
+	"github.com/sawada-naoya/mini-redis/internal/store"
 )
 
 type Server struct {
-	addr string
+	addr    string
+	handler *handler.Handler
 }
 
 func New(addr string) *Server {
-	return &Server{addr: addr}
+	st := store.New()
+	h := handler.New(st)
+
+	return &Server{
+		addr:    addr,
+		handler: h,
+	}
 }
 
 // Start はTCPサーバーを起動し、接続受け付けループを開始する
@@ -26,12 +34,16 @@ func (s *Server) Start() error {
 	}
 	defer ln.Close()
 
+	log.Printf("server started on %s", s.addr)
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			log.Printf("accept error: %v", err)
 			continue
 		}
 
+		log.Printf("accepted connection from %s", conn.RemoteAddr())
 		go s.handleConn(conn)
 	}
 }
@@ -62,7 +74,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			continue
 		}
 
-		res := fmt.Sprintf("command=%s args=%v\n", cmd.Name, cmd.Args)
+		res := s.handler.Execute(cmd)
+
 		_, writeErr := conn.Write([]byte(res))
 		if writeErr != nil {
 			log.Printf("write error to %s: %v", conn.RemoteAddr(), writeErr)
